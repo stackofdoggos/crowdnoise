@@ -1,1 +1,4 @@
 .DS_Store
+storage/
+backend/ingest_sample
+backend/*.o
