@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "song_id": "song123",
+  "title": "example song",
+  "sr": 44100,
+  "song_length_ms": 32000,
+  "instruments": {
+    "drums": {
+      "original_path": "testing data/original_drums.mp3"
+    },
+    "bass": {
+      "original_path": "testing data/original_bass.mp3"
+    },
+    "other": {
+      "original_path": "testing data/original_other.mp3"
+    }
+  }
+}
