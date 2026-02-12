@@ -108,17 +108,6 @@ static void validateSongDetailsBase(const json& base) {
     if (!obj.contains("original_path") || !obj.at("original_path").is_string()) {
       throw std::runtime_error("Instrument '" + name + "' missing string original_path in Song_Details");
     }
-    if (!obj.contains("segments") || !obj.at("segments").is_array()) {
-      throw std::runtime_error("Instrument '" + name + "' missing array segments in Song_Details");
-    }
-    for (const auto& seg : obj.at("segments")) {
-      if (!seg.is_object() || !seg.contains("start_ms") || !seg.contains("end_ms")) {
-        throw std::runtime_error("Instrument '" + name + "' has invalid segment; expected {start_ms,end_ms}");
-      }
-      if (!seg.at("start_ms").is_number() || !seg.at("end_ms").is_number()) {
-        throw std::runtime_error("Instrument '" + name + "' segment start_ms/end_ms must be numbers");
-      }
-    }
   }
 }
 
@@ -204,9 +193,6 @@ ReplaceTrackResult replaceTrack(const ReplaceTrackRequest& req) {
   json& inst = state["instruments"][req.instrumentName];
   if (!inst.contains("original_path")) {
     throw std::runtime_error("Instrument missing original_path in state: " + req.instrumentName);
-  }
-  if (!inst.contains("segments")) {
-    throw std::runtime_error("Instrument missing segments in state: " + req.instrumentName);
   }
 
   // 5) Update active track pointer.
