@@ -1,3 +1,13 @@
 .DS_Store
 .Identifier
 /src/third_party/
+# build artifacts
+/build_tmp/
+/mix_json_cli
+
+# generated test outputs
+/out.mp3
+
+# generated local test inputs (from JSON paths)
+/stems/
+/uploads/
