@@ -1,18 +1,18 @@
 {
-  "schema_version": 1,
-  "song_id": "song123",
-  "title": "example song",
-  "sr": 44100,
-  "song_length_ms": 32000,
   "instruments": {
-    "drums": {
-      "original_path": "testing data/original_drums.mp3"
-    },
     "bass": {
       "original_path": "testing data/original_bass.mp3"
+    },
+    "drums": {
+      "original_path": "testing data/original_drums.mp3"
     },
     "other": {
       "original_path": "testing data/original_other.mp3"
     }
-  }
+  },
+  "schema_version": 1,
+  "song_id": "testing_song",
+  "song_length_ms": 3000,
+  "sr": 44100,
+  "title": "testing_song"
 }
