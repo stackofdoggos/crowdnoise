@@ -486,7 +486,14 @@ struct Segment {
 
 struct Instrument {
   std::string name;
+  // JSON fields:
+  // - active_path: by default the "replacement" or active track to mix.
+  // - original_path: optional; if provided and segments are absent, we derive where the
+  //   instrument should be audible by analyzing this original stem.
+  // - replacement_path: optional; if present, overrides active_path for replacement audio.
   std::string activePath;
+  std::string originalPath;
+  std::string replacementPath;
   std::vector<Segment> segments;
 };
 
@@ -501,6 +508,16 @@ static bool JsonGetNumber(const Json& j, const char* key, double* out) {
 }
 
 static bool JsonGetString(const Json& j, const char* key, std::string* out) {
+  if (!out) return false;
+  if (j.type != Json::Type::Object) return false;
+  auto it = j.o.find(key);
+  if (it == j.o.end()) return false;
+  if (it->second.type != Json::Type::String) return false;
+  *out = it->second.s;
+  return true;
+}
+
+static bool JsonGetStringOptional(const Json& j, const char* key, std::string* out) {
   if (!out) return false;
   if (j.type != Json::Type::Object) return false;
   auto it = j.o.find(key);
@@ -570,46 +587,47 @@ static bool LoadSongFromJson(const Json& root, uint64_t* outSongFrames, std::vec
       return false;
     }
 
-    const Json* segs = JsonGetObjectMember(instObj, "segments");
-    if (!segs || segs->type != Json::Type::Array) {
-      if (err) *err = "Instrument '" + instrumentName + "' missing/invalid segments array";
-      return false;
-    }
-    if (segs->a.empty()) {
-      // Allow empty segments: instrument contributes nothing.
-      outInstruments->push_back(std::move(inst));
-      continue;
-    }
+    // Optional fields for the "mask from original" mode.
+    (void)JsonGetStringOptional(instObj, "original_path", &inst.originalPath);
+    (void)JsonGetStringOptional(instObj, "replacement_path", &inst.replacementPath);
 
-    for (size_t idx = 0; idx < segs->a.size(); ++idx) {
-      const Json& segObj = segs->a[idx];
-      if (segObj.type != Json::Type::Object) {
-        if (err) *err = "Instrument '" + instrumentName + "' has non-object segment";
+    // segments are optional; if present, we interpret them as explicit audible windows.
+    const Json* segs = JsonGetObjectMember(instObj, "segments");
+    if (segs) {
+      if (segs->type != Json::Type::Array) {
+        if (err) *err = "Instrument '" + instrumentName + "' has invalid segments (must be array)";
         return false;
       }
-      double startMs = 0.0, endMs = 0.0;
-      if (!JsonGetNumber(segObj, "start_ms", &startMs) || !JsonGetNumber(segObj, "end_ms", &endMs)) {
-        if (err) *err = "Instrument '" + instrumentName + "' segment missing start_ms/end_ms";
-        return false;
+      for (size_t idx = 0; idx < segs->a.size(); ++idx) {
+        const Json& segObj = segs->a[idx];
+        if (segObj.type != Json::Type::Object) {
+          if (err) *err = "Instrument '" + instrumentName + "' has non-object segment";
+          return false;
+        }
+        double startMs = 0.0, endMs = 0.0;
+        if (!JsonGetNumber(segObj, "start_ms", &startMs) || !JsonGetNumber(segObj, "end_ms", &endMs)) {
+          if (err) *err = "Instrument '" + instrumentName + "' segment missing start_ms/end_ms";
+          return false;
+        }
+        if (!(startMs >= 0.0) || !(endMs >= 0.0) || !(endMs > startMs)) {
+          if (err) *err = "Instrument '" + instrumentName + "' segment has invalid range";
+          return false;
+        }
+        const uint64_t startF = MsToFrames(startMs);
+        const uint64_t endF = MsToFrames(endMs);
+        if (endF <= startF) {
+          if (err) *err = "Instrument '" + instrumentName + "' segment converts to empty frame range";
+          return false;
+        }
+        if (endF > songFrames) {
+          if (err) *err = "Instrument '" + instrumentName + "' segment exceeds song_length_ms";
+          return false;
+        }
+        Segment seg;
+        seg.startFrame = startF;
+        seg.frameCount = endF - startF;
+        inst.segments.push_back(seg);
       }
-      if (!(startMs >= 0.0) || !(endMs >= 0.0) || !(endMs > startMs)) {
-        if (err) *err = "Instrument '" + instrumentName + "' segment has invalid range";
-        return false;
-      }
-      const uint64_t startF = MsToFrames(startMs);
-      const uint64_t endF = MsToFrames(endMs);
-      if (endF <= startF) {
-        if (err) *err = "Instrument '" + instrumentName + "' segment converts to empty frame range";
-        return false;
-      }
-      if (endF > songFrames) {
-        if (err) *err = "Instrument '" + instrumentName + "' segment exceeds song_length_ms";
-        return false;
-      }
-      Segment seg;
-      seg.startFrame = startF;
-      seg.frameCount = endF - startF;
-      inst.segments.push_back(seg);
     }
 
     outInstruments->push_back(std::move(inst));
@@ -664,6 +682,98 @@ static std::string JoinPath(const std::string& dir, const std::string& rel) {
   return dir + "/" + rel;
 }
 
+static std::string ResolvePathRelativeToJson(const std::string& jsonDir, const std::string& p) {
+  if (p.empty()) return p;
+  return IsAbsolutePath(p) ? p : JoinPath(jsonDir, p);
+}
+
+struct GateParams {
+  uint32_t windowFrames = 960;  // 20ms at 48kHz
+  // Thresholds are linear amplitude (float PCM). These correspond roughly to:
+  // - onThreshold ~ -44 dBFS
+  // - offThreshold ~ -48 dBFS
+  float onThreshold = 0.006f;
+  float offThreshold = 0.004f;
+  uint32_t attackWindows = 2;   // require N windows above onThreshold
+  uint32_t releaseWindows = 4;  // require N windows below offThreshold
+};
+
+static float RmsWindowStereo(const crowdnoise_pcm_f32_t& pcm, uint64_t startFrame, uint64_t endFrame) {
+  if (!pcm.pcmInterleaved || pcm.channels != 2) return 0.0f;
+  if (endFrame <= startFrame) return 0.0f;
+  const uint64_t frames = endFrame - startFrame;
+  const float* x = pcm.pcmInterleaved + static_cast<size_t>(startFrame * 2u);
+  long double sum = 0.0L;
+  const size_t samples = static_cast<size_t>(frames * 2u);
+  for (size_t i = 0; i < samples; ++i) {
+    const float v = x[i];
+    sum += static_cast<long double>(v) * static_cast<long double>(v);
+  }
+  const long double mean = sum / static_cast<long double>(samples);
+  const long double r = std::sqrt(mean);
+  return static_cast<float>(r);
+}
+
+static void RenderMaskedReplacementStem(const crowdnoise_pcm_f32_t& original,
+                                       const crowdnoise_pcm_f32_t& replacement,
+                                       uint64_t songFrames,
+                                       const GateParams& p,
+                                       std::vector<float>* outRenderedInterleaved) {
+  outRenderedInterleaved->assign(static_cast<size_t>(songFrames * 2u), 0.0f);
+  if (!original.pcmInterleaved || !replacement.pcmInterleaved) return;
+  if (original.sampleRate != 48000 || original.channels != 2) return;
+  if (replacement.sampleRate != 48000 || replacement.channels != 2) return;
+  if (songFrames == 0) return;
+  if (replacement.frameCount == 0) return;
+
+  const uint64_t maskFrames = std::min<uint64_t>(songFrames, original.frameCount);
+  const uint32_t W = (p.windowFrames == 0) ? 1u : p.windowFrames;
+
+  bool stateOn = false;
+  uint32_t onCount = 0;
+  uint32_t offCount = 0;
+  uint64_t repPos = 0;  // in frames; advances only during ON windows
+
+  for (uint64_t wStart = 0; wStart < maskFrames; wStart += W) {
+    const uint64_t wEnd = std::min<uint64_t>(maskFrames, wStart + static_cast<uint64_t>(W));
+    const float rms = RmsWindowStereo(original, wStart, wEnd);
+
+    if (!stateOn) {
+      if (rms >= p.onThreshold) {
+        onCount++;
+      } else {
+        onCount = 0;
+      }
+      if (onCount >= p.attackWindows) {
+        stateOn = true;
+        offCount = 0;
+      }
+    } else {
+      if (rms < p.offThreshold) {
+        offCount++;
+      } else {
+        offCount = 0;
+      }
+      if (offCount >= p.releaseWindows) {
+        stateOn = false;
+        onCount = 0;
+      }
+    }
+
+    if (!stateOn) continue;
+
+    // Fill rendered[wStart:wEnd) with replacement frames, looping as needed.
+    for (uint64_t f = wStart; f < wEnd; ++f) {
+      const uint64_t srcF = (replacement.frameCount == 0) ? 0u : (repPos % replacement.frameCount);
+      const size_t dstIdx = static_cast<size_t>(f * 2u);
+      const size_t srcIdx = static_cast<size_t>(srcF * 2u);
+      (*outRenderedInterleaved)[dstIdx + 0] = replacement.pcmInterleaved[srcIdx + 0];
+      (*outRenderedInterleaved)[dstIdx + 1] = replacement.pcmInterleaved[srcIdx + 1];
+      repPos++;
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -698,103 +808,164 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // 2) Decode+standardize each instrument's active_path.
+  // 2) Decode+standardize tracks.
   const std::string jsonDir = Dirname(jsonPath);
-  std::vector<crowdnoise_pcm_f32_t> decoded;
-  decoded.resize(instruments.size());
+  std::vector<crowdnoise_pcm_f32_t> replacementTracks(instruments.size());
+  std::vector<crowdnoise_pcm_f32_t> originalTracks(instruments.size());
+  std::vector<bool> hasOriginal(instruments.size(), false);
   char err[512];
 
   for (size_t i = 0; i < instruments.size(); ++i) {
-    std::memset(&decoded[i], 0, sizeof(crowdnoise_pcm_f32_t));
     std::memset(err, 0, sizeof(err));
+    std::memset(&replacementTracks[i], 0, sizeof(crowdnoise_pcm_f32_t));
+    std::memset(&originalTracks[i], 0, sizeof(crowdnoise_pcm_f32_t));
 
-    const std::string mp3Path = IsAbsolutePath(instruments[i].activePath)
-                                    ? instruments[i].activePath
-                                    : JoinPath(jsonDir, instruments[i].activePath);
+    const std::string replacementPath = ResolvePathRelativeToJson(
+        jsonDir, instruments[i].replacementPath.empty() ? instruments[i].activePath : instruments[i].replacementPath);
 
     const crowdnoise_result_t rc = crowdnoise_decode_standardize_mp3_file(
-        mp3Path.c_str(), &decoded[i], err, sizeof(err));
+        replacementPath.c_str(), &replacementTracks[i], err, sizeof(err));
     if (rc != CROWDNOISE_OK) {
       std::cerr << "Decode+standardize failed for instrument '" << instruments[i].name
-                << "' (" << mp3Path << "): " << err << "\n";
-      for (size_t j = 0; j < i; ++j) crowdnoise_free_pcm_f32(&decoded[j]);
+                << "' (" << replacementPath << "): " << err << "\n";
+      for (size_t j = 0; j < i; ++j) {
+        crowdnoise_free_pcm_f32(&replacementTracks[j]);
+        if (hasOriginal[j]) crowdnoise_free_pcm_f32(&originalTracks[j]);
+      }
       return 1;
+    }
+
+    if (!instruments[i].originalPath.empty() && instruments[i].segments.empty()) {
+      const std::string origPath = ResolvePathRelativeToJson(jsonDir, instruments[i].originalPath);
+      std::memset(err, 0, sizeof(err));
+      const crowdnoise_result_t rc2 = crowdnoise_decode_standardize_mp3_file(
+          origPath.c_str(), &originalTracks[i], err, sizeof(err));
+      if (rc2 != CROWDNOISE_OK) {
+        std::cerr << "Decode+standardize failed for original stem of instrument '" << instruments[i].name
+                  << "' (" << origPath << "): " << err << "\n";
+        for (size_t j = 0; j <= i; ++j) {
+          crowdnoise_free_pcm_f32(&replacementTracks[j]);
+          if (hasOriginal[j]) crowdnoise_free_pcm_f32(&originalTracks[j]);
+        }
+        return 1;
+      }
+      hasOriginal[i] = true;
     }
   }
 
   // 3) Allocate the final mix timeline.
-  // We use Step 4 (placements -> buffer length), plus a dummy placement to enforce song_length_ms.
-  std::vector<crowdnoise_track_placement_t> placements;
-  placements.reserve(1 + instruments.size() * 4);
-  placements.push_back(crowdnoise_track_placement_t{0u, songFrames});
-
-  for (const auto& inst : instruments) {
-    for (const auto& seg : inst.segments) {
-      placements.push_back(crowdnoise_track_placement_t{seg.startFrame, seg.frameCount});
-    }
-  }
+  // Always allocate exactly song_length_ms.
+  crowdnoise_track_placement_t placement{0u, songFrames};
 
   crowdnoise_pcm_f32_t mix{};
   std::memset(err, 0, sizeof(err));
   {
     const crowdnoise_result_t rc = crowdnoise_step4_allocate_silent_mix_buffer(
-        placements.data(), placements.size(), &mix, err, sizeof(err));
+        &placement, 1, &mix, err, sizeof(err));
     if (rc != CROWDNOISE_OK) {
       std::cerr << "Step 4 allocate failed: " << err << "\n";
-      for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
+      for (size_t i = 0; i < instruments.size(); ++i) {
+        crowdnoise_free_pcm_f32(&replacementTracks[i]);
+        if (hasOriginal[i]) crowdnoise_free_pcm_f32(&originalTracks[i]);
+      }
       return 1;
     }
   }
 
-  // 4) Add each segment (timeline placement).
+  // 4) Mix instruments.
+  //    - If segments exist: mix only those audible windows (legacy mode).
+  //    - Else if original_path exists: derive an audible mask from the original stem and render a full-length stem.
+  //    - Else: mix the entire replacement track from t=0, clamped to song length.
+  std::vector<std::vector<float>> renderedStems;  // keeps storage alive for stem views
+  renderedStems.reserve(instruments.size());
+  const GateParams gateParams{};
+
   for (size_t i = 0; i < instruments.size(); ++i) {
     const auto& inst = instruments[i];
-    const auto& track = decoded[i];
+    const auto& replacement = replacementTracks[i];
 
-    for (const auto& seg : inst.segments) {
-      // Validate/clamp source range inside decoded track.
-      // MP3 decode lengths can be slightly shorter than expected due to encoder delay/padding;
-      // in that case we clamp the segment to the available decoded PCM instead of failing.
-      if (seg.startFrame >= track.frameCount) {
-        // Nothing to mix for this segment.
-        continue;
-      }
-      if (seg.frameCount > (std::numeric_limits<uint64_t>::max() - seg.startFrame)) {
-        std::cerr << "Segment range overflow for instrument '" << inst.name << "'\n";
-        for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
-        crowdnoise_free_pcm_f32(&mix);
-        return 1;
-      }
-      uint64_t frameCount = seg.frameCount;
-      const uint64_t segEnd = seg.startFrame + frameCount;
-      if (segEnd > track.frameCount) {
-        const uint64_t clamped = track.frameCount - seg.startFrame;
-        // clamped can be 0 if startFrame==track.frameCount, but that case is handled above.
-        std::cerr << "Warning: clamping segment for instrument '" << inst.name
-                  << "' from " << frameCount << " frames to " << clamped
-                  << " (decoded track ended earlier than JSON segment)\n";
-        frameCount = clamped;
-      }
-      if (frameCount == 0) {
-        continue;
-      }
+    if (!inst.segments.empty()) {
+      // Legacy explicit segments mode (timeline windows).
+      for (const auto& seg : inst.segments) {
+        if (seg.startFrame >= songFrames) continue;
+        if (seg.startFrame >= replacement.frameCount) continue;
 
-      // Create a non-owning view into the decoded PCM for just this segment.
-      crowdnoise_pcm_f32_t segView{};
-      segView.sampleRate = 48000;
-      segView.channels = 2;
-      segView.frameCount = frameCount;
-      segView.pcmInterleaved = track.pcmInterleaved + static_cast<size_t>(seg.startFrame * 2u);
+        uint64_t frameCount = seg.frameCount;
+        const uint64_t maxToSong = songFrames - seg.startFrame;
+        if (frameCount > maxToSong) frameCount = maxToSong;
+
+        const uint64_t segEnd = seg.startFrame + frameCount;
+        if (segEnd > replacement.frameCount) {
+          const uint64_t clamped = replacement.frameCount - seg.startFrame;
+          frameCount = std::min<uint64_t>(frameCount, clamped);
+        }
+        if (frameCount == 0) continue;
+
+        crowdnoise_pcm_f32_t segView{};
+        segView.sampleRate = 48000;
+        segView.channels = 2;
+        segView.frameCount = frameCount;
+        segView.pcmInterleaved = replacement.pcmInterleaved + static_cast<size_t>(seg.startFrame * 2u);
+
+        std::memset(err, 0, sizeof(err));
+        const crowdnoise_result_t rc = crowdnoise_step5_add_track_to_mix(
+            &segView, seg.startFrame, &mix, err, sizeof(err));
+        if (rc != CROWDNOISE_OK) {
+          std::cerr << "Step 5 add failed for instrument '" << inst.name << "': " << err << "\n";
+          for (size_t j = 0; j < instruments.size(); ++j) {
+            crowdnoise_free_pcm_f32(&replacementTracks[j]);
+            if (hasOriginal[j]) crowdnoise_free_pcm_f32(&originalTracks[j]);
+          }
+          crowdnoise_free_pcm_f32(&mix);
+          return 1;
+        }
+      }
+      continue;
+    }
+
+    if (hasOriginal[i]) {
+      // Mask-from-original mode: render a full-length stem with silence where the original is silent.
+      renderedStems.emplace_back();
+      RenderMaskedReplacementStem(originalTracks[i], replacement, songFrames, gateParams, &renderedStems.back());
+
+      crowdnoise_pcm_f32_t stemView{};
+      stemView.sampleRate = 48000;
+      stemView.channels = 2;
+      stemView.frameCount = songFrames;
+      stemView.pcmInterleaved = renderedStems.back().data();
 
       std::memset(err, 0, sizeof(err));
-      const crowdnoise_result_t rc = crowdnoise_step5_add_track_to_mix(
-          &segView, seg.startFrame, &mix, err, sizeof(err));
+      const crowdnoise_result_t rc = crowdnoise_step5_add_track_to_mix(&stemView, 0u, &mix, err, sizeof(err));
       if (rc != CROWDNOISE_OK) {
         std::cerr << "Step 5 add failed for instrument '" << inst.name << "': " << err << "\n";
-        for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
+        for (size_t j = 0; j < instruments.size(); ++j) {
+          crowdnoise_free_pcm_f32(&replacementTracks[j]);
+          if (hasOriginal[j]) crowdnoise_free_pcm_f32(&originalTracks[j]);
+        }
         crowdnoise_free_pcm_f32(&mix);
         return 1;
       }
+      continue;
+    }
+
+    // Full-stem mode: mix replacement from t=0, clamped to song length.
+    if (replacement.frameCount == 0) continue;
+    const uint64_t frameCount = std::min<uint64_t>(replacement.frameCount, songFrames);
+    crowdnoise_pcm_f32_t view{};
+    view.sampleRate = 48000;
+    view.channels = 2;
+    view.frameCount = frameCount;
+    view.pcmInterleaved = replacement.pcmInterleaved;
+    std::memset(err, 0, sizeof(err));
+    const crowdnoise_result_t rc = crowdnoise_step5_add_track_to_mix(&view, 0u, &mix, err, sizeof(err));
+    if (rc != CROWDNOISE_OK) {
+      std::cerr << "Step 5 add failed for instrument '" << inst.name << "': " << err << "\n";
+      for (size_t j = 0; j < instruments.size(); ++j) {
+        crowdnoise_free_pcm_f32(&replacementTracks[j]);
+        if (hasOriginal[j]) crowdnoise_free_pcm_f32(&originalTracks[j]);
+      }
+      crowdnoise_free_pcm_f32(&mix);
+      return 1;
     }
   }
 
@@ -807,7 +978,10 @@ int main(int argc, char** argv) {
         &mix, &maxAbs, &scaleApplied, err, sizeof(err));
     if (rc != CROWDNOISE_OK) {
       std::cerr << "Step 6 failed: " << err << "\n";
-      for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
+      for (size_t i = 0; i < instruments.size(); ++i) {
+        crowdnoise_free_pcm_f32(&replacementTracks[i]);
+        if (hasOriginal[i]) crowdnoise_free_pcm_f32(&originalTracks[i]);
+      }
       crowdnoise_free_pcm_f32(&mix);
       return 1;
     }
@@ -821,14 +995,20 @@ int main(int argc, char** argv) {
         &mix, outMp3Path.c_str(), vbrQuality, err, sizeof(err));
     if (rc != CROWDNOISE_OK) {
       std::cerr << "Step 7 encode failed: " << err << "\n";
-      for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
+      for (size_t i = 0; i < instruments.size(); ++i) {
+        crowdnoise_free_pcm_f32(&replacementTracks[i]);
+        if (hasOriginal[i]) crowdnoise_free_pcm_f32(&originalTracks[i]);
+      }
       crowdnoise_free_pcm_f32(&mix);
       return 1;
     }
   }
 
   // Cleanup.
-  for (auto& t : decoded) crowdnoise_free_pcm_f32(&t);
+  for (size_t i = 0; i < instruments.size(); ++i) {
+    crowdnoise_free_pcm_f32(&replacementTracks[i]);
+    if (hasOriginal[i]) crowdnoise_free_pcm_f32(&originalTracks[i]);
+  }
   crowdnoise_free_pcm_f32(&mix);
 
   std::cout << "Wrote: " << outMp3Path << "\n";
