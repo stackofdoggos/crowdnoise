@@ -1,0 +1,19 @@
+# Enforce consistent line endings across platforms.
+# Store text normalized in the repo; check out with LF by default.
+* text=auto eol=lf
+
+# Keep Windows-specific scripts with CRLF on checkout (optional, but reduces friction).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Common binary formats (never attempt EOL normalization).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.pdf  binary
+*.pptx binary
+*.zip  binary
+*.gz   binary
