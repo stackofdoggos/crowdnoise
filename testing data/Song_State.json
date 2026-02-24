@@ -1,0 +1,41 @@
+{
+  "history": [
+    {
+      "instrument": "bass",
+      "new_active_path": "testing data/remade_bass.mp3",
+      "old_active_path": "testing data/original_bass.mp3",
+      "ts": "2026-02-18T17:06:00Z",
+      "user_id": "auto_test"
+    },
+    {
+      "instrument": "drums",
+      "new_active_path": "testing data/remade_drums.mp3",
+      "old_active_path": "testing data/original_drums.mp3",
+      "ts": "2026-02-18T17:06:00Z",
+      "user_id": "auto_test"
+    }
+  ],
+  "instruments": {
+    "bass": {
+      "active_path": "testing data/remade_bass.mp3",
+      "active_source": "user",
+      "original_path": "testing data/original_bass.mp3"
+    },
+    "drums": {
+      "active_path": "testing data/remade_drums.mp3",
+      "active_source": "user",
+      "original_path": "testing data/original_drums.mp3"
+    },
+    "other": {
+      "active_path": "testing data/original_other.mp3",
+      "active_source": "original",
+      "original_path": "testing data/original_other.mp3"
+    }
+  },
+  "revision": 2,
+  "schema_version": 1,
+  "song_id": "testing_song",
+  "song_length_ms": 3000,
+  "sr": 44100,
+  "title": "testing_song"
+}

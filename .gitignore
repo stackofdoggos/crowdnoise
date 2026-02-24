@@ -1,4 +1,7 @@
 .DS_Store
+storage/
+backend/ingest_sample
+backend/*.o
 .Identifier
 /src/third_party/
 # build artifacts
