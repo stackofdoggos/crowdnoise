@@ -1,0 +1,26 @@
+{
+  "name": "designed",
+  "page": { "width": 612, "height": 792, "margin": 46 },
+  "colors": {
+    "background": [0.05, 0.05, 0.06],
+    "text": [0.94, 0.94, 0.94],
+    "muted": [0.72, 0.72, 0.74],
+    "rule": [0.28, 0.28, 0.32],
+    "panel_fill": [0.09, 0.09, 0.11]
+  },
+  "type": {
+    "title_size": 28,
+    "tagline_size": 11,
+    "h2_size": 10.5,
+    "body_size": 9.0,
+    "mono_size": 8.3,
+    "leading": 12
+  },
+  "layout": {
+    "title_align": "left",
+    "left_panel_width": 94,
+    "section_gap": 9,
+    "rule_gap": 8,
+    "two_column_ui": true
+  }
+}

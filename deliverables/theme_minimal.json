@@ -1,0 +1,24 @@
+{
+  "name": "minimal",
+  "page": { "width": 612, "height": 792, "margin": 54 },
+  "colors": {
+    "background": [0.06, 0.06, 0.07],
+    "text": [0.94, 0.94, 0.94],
+    "muted": [0.72, 0.72, 0.74],
+    "rule": [0.28, 0.28, 0.32]
+  },
+  "type": {
+    "title_size": 26,
+    "tagline_size": 11,
+    "h2_size": 11,
+    "body_size": 9.2,
+    "mono_size": 8.5,
+    "leading": 12
+  },
+  "layout": {
+    "title_align": "center",
+    "section_gap": 10,
+    "rule_gap": 10,
+    "two_column_ui": false
+  }
+}

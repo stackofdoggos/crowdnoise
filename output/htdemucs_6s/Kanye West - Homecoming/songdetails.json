@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "song_id": "kanye-west-homecoming",
+  "title": "Kanye West - Homecoming",
+  "sr": 44100,
+  "song_length_ms": 0,
+  "instruments": {
+    "bass": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/bass.mp3"
+    },
+    "drums": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/drums.mp3"
+    },
+    "guitar": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/guitar.mp3"
+    },
+    "other": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/other.mp3"
+    },
+    "piano": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/piano.mp3"
+    },
+    "vocals": {
+      "original_path": "output/htdemucs_6s/Kanye West - Homecoming/vocals.mp3"
+    }
+  }
+}

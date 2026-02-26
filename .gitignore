@@ -3,6 +3,7 @@ storage/
 backend/ingest_sample
 backend/*.o
 .Identifier
+.venv/
 /src/third_party/
 # build artifacts
 /build_tmp/

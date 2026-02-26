@@ -5,6 +5,31 @@ video: https://drive.google.com/file/d/1hLRHpZ6qzNLOpuLhoGe_CCP-LmtbJJEc/view?us
 
 ---
 
+## MVP Scope
+
+For the MVP, we are focusing on **piano + drums** as the primary instrument targets in the decomposition and remake workflow.
+
+---
+
+## Audio Stems (Demucs)
+
+Split songs into stems using Demucs CLI.
+
+1. Install Demucs:
+   `pip install -U demucs`
+2. Create an input folder and add audio files:
+   `mkdir -p input_audio`
+3. Run the script:
+   `./split_stems.sh`
+4. Find results in `output_stems/<track_name>/` with `vocals.wav`, `drums.wav`,
+   `bass.wav`, and `other.wav`.
+
+Notes:
+- The script expects audio files in `input_audio/` and writes stems to `output_stems/`.
+- You can still use the Demucs GUI app, but the CLI script is the repeatable deliverable.
+
+---
+
 ## Concept (What It Is)
 
 **crowd·noise** is a community-based, gamified music production app where groups of friends recreate well-known songs using **tiny recordings (≈0.1–10s)** captured from themselves + their environment. you transform those clips with an in‑app sound changer, layer them into a remake, and **unlock more of the album artwork as it improves**.
