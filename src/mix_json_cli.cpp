@@ -37,6 +37,11 @@
 
 namespace {
 
+// Toggle: when enabled, and an instrument has `original_path` but no `segments`,
+// we derive an audible mask from the original stem and gate the replacement.
+// For debugging / expected "just mix stems" behavior, keep this disabled.
+static constexpr bool kEnableOriginalMasking = false;
+
 // -------------------------
 // Minimal JSON parser (just enough for our schema).
 // -------------------------
@@ -847,7 +852,7 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    if (!instruments[i].originalPath.empty() && instruments[i].segments.empty()) {
+    if (kEnableOriginalMasking && !instruments[i].originalPath.empty() && instruments[i].segments.empty()) {
       const std::string origPath = ResolvePathRelativeToJson(jsonDir, instruments[i].originalPath);
       std::memset(err, 0, sizeof(err));
       const crowdnoise_result_t rc2 = crowdnoise_decode_standardize_mp3_file(
@@ -935,7 +940,7 @@ int main(int argc, char** argv) {
       continue;
     }
 
-    if (hasOriginal[i]) {
+    if (kEnableOriginalMasking && hasOriginal[i]) {
       // Mask-from-original mode: render a full-length stem with silence where the original is silent.
       renderedStems.emplace_back();
       RenderMaskedReplacementStem(originalTracks[i], replacement, songFrames, gateParams, &renderedStems.back());
