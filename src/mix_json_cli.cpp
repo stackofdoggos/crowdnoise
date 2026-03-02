@@ -682,9 +682,21 @@ static std::string JoinPath(const std::string& dir, const std::string& rel) {
   return dir + "/" + rel;
 }
 
+static bool FileExistsReadable(const std::string& path) {
+  if (path.empty()) return false;
+  std::ifstream f(path, std::ios::binary);
+  return f.good();
+}
+
 static std::string ResolvePathRelativeToJson(const std::string& jsonDir, const std::string& p) {
   if (p.empty()) return p;
-  return IsAbsolutePath(p) ? p : JoinPath(jsonDir, p);
+  if (IsAbsolutePath(p)) return p;
+
+  // Prefer interpreting paths as CWD-relative if they already resolve.
+  // This makes JSONs portable even when they contain repo-root-relative paths.
+  if (FileExistsReadable(p)) return p;
+
+  return JoinPath(jsonDir, p);
 }
 
 struct GateParams {

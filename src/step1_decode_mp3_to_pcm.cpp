@@ -29,8 +29,9 @@
 #define DR_MP3_IMPLEMENTATION
 #include "third_party/dr_mp3.h"
 
-// High-quality resampler (used for Step 2).
-#include "third_party/speexdsp/crowdnoise_speex_resampler.h"
+// Step 2 resampling:
+// We use a small built-in linear resampler to avoid external dependencies.
+// This is good enough for offline mixing; it can be upgraded later if needed.
 
 namespace {
 bool SetError(std::string* errorMessage, const char* msg) {
@@ -157,88 +158,41 @@ bool ResampleInterleavedF32(const float* inInterleaved,
   if (channels == 0 || (channels != 1 && channels != 2)) return SetError(errorMessage, "Unsupported channel count");
   if (inRate == 0 || outRate == 0) return SetError(errorMessage, "Invalid sample rate");
 
-  int err = 0;
-  // Quality: 0..10. Use 10 for highest perceptual quality (offline processing).
-  SpeexResamplerState* st = speex_resampler_init(static_cast<spx_uint32_t>(channels),
-                                                static_cast<spx_uint32_t>(inRate),
-                                                static_cast<spx_uint32_t>(outRate),
-                                                /*quality=*/10,
-                                                &err);
-  if (!st || err != RESAMPLER_ERR_SUCCESS) {
-    return SetError(errorMessage, speex_resampler_strerror(err));
+  if (inFrames == 0) {
+    outInterleaved->clear();
+    *outFrames = 0;
+    return true;
   }
 
-  // Recommended for file/offline processing to avoid leading zeros from filter delay.
-  (void)speex_resampler_skip_zeros(st);
+  const double outFramesD = (static_cast<double>(inFrames) * static_cast<double>(outRate)) / static_cast<double>(inRate);
+  uint64_t nOut = static_cast<uint64_t>(std::llround(outFramesD));
+  if (nOut == 0) nOut = 1;
 
-  const double ratio = static_cast<double>(outRate) / static_cast<double>(inRate);
-  const uint64_t expectedOutFrames = static_cast<uint64_t>(std::ceil(static_cast<double>(inFrames) * ratio)) + 64;
-  outInterleaved->clear();
-  outInterleaved->reserve(static_cast<size_t>(expectedOutFrames * channels));
+  // output index -> input position mapping:
+  //   inPos = outIndex * (inRate / outRate)
+  const double step = static_cast<double>(inRate) / static_cast<double>(outRate);
 
-  constexpr spx_uint32_t kChunkFrames = 4096;
-  uint64_t consumedFrames = 0;
-  uint64_t producedFrames = 0;
+  outInterleaved->assign(static_cast<size_t>(nOut) * channels, 0.0f);
 
-  while (consumedFrames < inFrames) {
-    const spx_uint32_t remaining = static_cast<spx_uint32_t>(std::min<uint64_t>(inFrames - consumedFrames, std::numeric_limits<spx_uint32_t>::max()));
-    spx_uint32_t inLen = (remaining > kChunkFrames) ? kChunkFrames : remaining;  // per-channel frames
+  for (uint64_t outF = 0; outF < nOut; ++outF) {
+    const double inPos = static_cast<double>(outF) * step;
+    const double inPosClamped = std::min<double>(inPos, static_cast<double>(inFrames - 1));
+    const uint64_t i0 = static_cast<uint64_t>(std::floor(inPosClamped));
+    const uint64_t i1 = (i0 + 1 < inFrames) ? (i0 + 1) : i0;
+    const float frac = static_cast<float>(inPosClamped - static_cast<double>(i0));
 
-    // Provide a generous output buffer for this chunk.
-    const uint64_t outLenGuess64 = static_cast<uint64_t>(std::ceil(static_cast<double>(inLen) * ratio)) + 256;
-    spx_uint32_t outLen = static_cast<spx_uint32_t>(std::min<uint64_t>(outLenGuess64, std::numeric_limits<spx_uint32_t>::max()));
-    std::vector<float> outChunk(static_cast<size_t>(outLen) * channels);
+    const size_t base0 = static_cast<size_t>(i0) * channels;
+    const size_t base1 = static_cast<size_t>(i1) * channels;
+    const size_t dstBase = static_cast<size_t>(outF) * channels;
 
-    const float* inPtr = inInterleaved + static_cast<size_t>(consumedFrames) * channels;
-
-    int rc = 0;
-    if (channels == 1) {
-      rc = speex_resampler_process_float(st, 0, inPtr, &inLen, outChunk.data(), &outLen);
-    } else {
-      rc = speex_resampler_process_interleaved_float(st, inPtr, &inLen, outChunk.data(), &outLen);
-    }
-
-    if (rc != RESAMPLER_ERR_SUCCESS) {
-      speex_resampler_destroy(st);
-      return SetError(errorMessage, speex_resampler_strerror(rc));
-    }
-
-    // Append produced samples.
-    if (outLen > 0) {
-      outInterleaved->insert(outInterleaved->end(), outChunk.begin(), outChunk.begin() + static_cast<size_t>(outLen) * channels);
-      producedFrames += outLen;
-    }
-
-    consumedFrames += inLen;
-    if (inLen == 0) break;  // safety
-  }
-
-  // Flush tail (drain internal filter) by providing zero input.
-  // We pass a valid pointer with inLen=0 to avoid any null-pointer assumptions in the library.
-  {
-    float dummy = 0.0f;
-    for (;;) {
-      spx_uint32_t inLen = 0;
-      spx_uint32_t outLen = 256;
-      std::vector<float> outChunk(static_cast<size_t>(outLen) * channels);
-      int rc = 0;
-      if (channels == 1) {
-        rc = speex_resampler_process_float(st, 0, &dummy, &inLen, outChunk.data(), &outLen);
-      } else {
-        rc = speex_resampler_process_interleaved_float(st, &dummy, &inLen, outChunk.data(), &outLen);
-      }
-      if (rc != RESAMPLER_ERR_SUCCESS) {
-        speex_resampler_destroy(st);
-        return SetError(errorMessage, speex_resampler_strerror(rc));
-      }
-      if (outLen == 0) break;
-      outInterleaved->insert(outInterleaved->end(), outChunk.begin(), outChunk.begin() + static_cast<size_t>(outLen) * channels);
-      producedFrames += outLen;
+    for (uint32_t ch = 0; ch < channels; ++ch) {
+      const float a = inInterleaved[base0 + ch];
+      const float b = inInterleaved[base1 + ch];
+      (*outInterleaved)[dstBase + ch] = a + (b - a) * frac;
     }
   }
 
-  speex_resampler_destroy(st);
-  *outFrames = producedFrames;
+  *outFrames = nOut;
   return true;
 }
 }  // namespace

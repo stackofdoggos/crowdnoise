@@ -5,6 +5,7 @@ backend/*.o
 .Identifier
 .venv/
 /src/third_party/
+# third_party: keep build/compile inputs, ignore outputs
 # build artifacts
 /build_tmp/
 /mix_json_cli
@@ -15,3 +16,5 @@ backend/*.o
 # generated local test inputs (from JSON paths)
 /stems/
 /uploads/
+.venv/
+.libs/

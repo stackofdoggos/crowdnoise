@@ -12,9 +12,21 @@
 #include <string>
 #include <vector>
 
-// LAME MP3 encoder (vendored).
-// Public header is in src/third_party/lame/include/lame.h
-#include "third_party/lame/include/lame.h"
+// MP3 encoder.
+//
+// In some environments we vendor LAME; on macOS dev machines it's often installed via Homebrew.
+// Prefer system headers when available, but keep a vendored fallback.
+#if defined(__has_include)
+#  if __has_include(<lame/lame.h>)
+#    include <lame/lame.h>
+#  elif __has_include(<lame.h>)
+#    include <lame.h>
+#  else
+#    include "third_party/lame/include/lame.h"
+#  endif
+#else
+#  include "third_party/lame/include/lame.h"
+#endif
 
 namespace {
 void WriteError(char* errorBuf, size_t errorBufSize, const std::string& msg) {

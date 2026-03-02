@@ -1,0 +1,4 @@
+mpglib_interface.lo: mpglib_interface.c /usr/include/stdc-predef.h \
+ ../config.h
+/usr/include/stdc-predef.h:
+../config.h:

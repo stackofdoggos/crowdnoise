@@ -21,6 +21,8 @@ mkdir -p build_tmp
 # - LAME + SpeexDSP sources are C, so they must be compiled with gcc (not g++).
 # - Our app code is C++, compiled with g++, and we link everything with g++.
 
+# We keep HAVE_CONFIG_H enabled for the vendored LAME build (it relies on types/headers).
+# We patch LAME's config.h to disable x86/SSE paths on arm64 (see src/third_party/lame/config.h).
 CFLAGS="-O2 -DHAVE_CONFIG_H \
   -I./src -I./src/third_party -I./src/third_party/speexdsp \
   -I./src/third_party/lame -I./src/third_party/lame/include \
@@ -28,10 +30,17 @@ CFLAGS="-O2 -DHAVE_CONFIG_H \
   -I./src/third_party/lame/mpglib"
 
 echo "Compiling C deps (SpeexDSP + LAME)..."
+
+# LAME includes some optional x86/SSE-optimized sources. Those do not compile on arm64.
+EXTRA_LAME_VEC=""
+if [[ "$(uname -m)" == "x86_64" ]]; then
+  EXTRA_LAME_VEC="src/third_party/lame/libmp3lame/vector/xmm_quantize_sub.c"
+fi
+
 gcc $CFLAGS -c \
   src/third_party/speexdsp/crowdnoise_speex_resampler.c \
   src/third_party/lame/libmp3lame/*.c \
-  src/third_party/lame/libmp3lame/vector/xmm_quantize_sub.c \
+  $EXTRA_LAME_VEC \
   src/third_party/lame/mpglib/common.c \
   src/third_party/lame/mpglib/interface.c \
   src/third_party/lame/mpglib/layer1.c \
