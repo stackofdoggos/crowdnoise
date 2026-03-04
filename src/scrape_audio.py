@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import re
 import shutil
@@ -88,30 +89,39 @@ def _download_archive_audio(query: str, output_dir: Path) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        query = input("Song title (and artist): ").strip()
-        if not query:
-            print("Usage: python3 src/youtube_audio.py \"Song Title Artist\"")
-            return 1
-    else:
-        query = " ".join(sys.argv[1:]).strip()
+    parser = argparse.ArgumentParser(description="Download audio from YouTube or Internet Archive.")
+    parser.add_argument("query", nargs="*", help="YouTube URL, or song title/artist to search.")
+    parser.add_argument("-o", "--output", help="Output filename (e.g. combined_portable.mp3).")
+    parser.add_argument("--mvp-demo", action="store_true", help="Also copy output to MVP demo/.")
+    args = parser.parse_args()
+
+    query = " ".join(args.query).strip()
+    if not query:
+        query = input("Song title (and artist) or YouTube URL: ").strip()
+    if not query:
+        print("Usage: python3 src/scrape_audio.py \"URL or Song Title\" [-o output.mp3]")
+        return 1
 
     if shutil.which("yt-dlp") is None:
         print("yt-dlp not found in PATH. Install with: pip install -U yt-dlp")
-        return 1
-
-    if not query:
-        print("Please provide a non-empty song title.")
         return 1
 
     project_root = Path(__file__).resolve().parents[1]
     output_dir = project_root / "resources"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_template = str(output_dir / "%(title)s.%(ext)s")
+    if args.output:
+        out_name = args.output if args.output.endswith(".mp3") else f"{args.output}.mp3"
+        output_template = str(output_dir / out_name)
+    else:
+        output_template = str(output_dir / "%(title)s.%(ext)s")
+    # Accept direct YouTube/yt-dlp URLs; otherwise treat as search query
+    is_url = "youtube.com" in query or "youtu.be" in query
+    url_or_search = query if is_url else "ytsearch1:" + query
+
     cmd = [
         "yt-dlp",
-        "ytsearch1:" + query,
+        url_or_search,
         "--no-playlist",
         "--js-runtimes",
         "node,deno",
@@ -123,11 +133,25 @@ def main() -> int:
     ]
 
     result = subprocess.call(cmd)
-    if result == 0:
-        return 0
+    if result != 0:
+        print("YouTube download failed. Trying Internet Archive...")
+        return _download_archive_audio(query, output_dir)
 
-    print("YouTube download failed. Trying Internet Archive...")
-    return _download_archive_audio(query, output_dir)
+    if args.mvp_demo:
+        if args.output:
+            out_name = args.output if args.output.endswith(".mp3") else f"{args.output}.mp3"
+            src = output_dir / out_name
+            if src.exists():
+                mvp_demo = project_root / "MVP demo"
+                mvp_demo.mkdir(parents=True, exist_ok=True)
+                dest = mvp_demo / src.name
+                shutil.copy2(src, dest)
+                print(f"Copied to {dest}")
+            else:
+                print(f"Warning: {src} not found; skipping MVP demo copy.", file=sys.stderr)
+        else:
+            print("--mvp-demo requires -o/--output to know which file to copy.", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":

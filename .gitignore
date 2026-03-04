@@ -9,6 +9,7 @@ backend/*.o
 # build artifacts
 /build_tmp/
 /mix_json_cli
+/build/obj/
 
 # generated test outputs
 /out.mp3

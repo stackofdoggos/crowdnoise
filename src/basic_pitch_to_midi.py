@@ -139,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to output .mid file. Defaults to output/trackDecomp/<song>/piano/piano.mid",
     )
+    parser.add_argument(
+        "--mvp-demo",
+        action="store_true",
+        help="Also copy output to MVP demo/bass/bass.mid.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -152,6 +157,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Wrote MIDI: {out}")
+    if args.mvp_demo:
+        mvp_bass = root / "MVP demo" / "bass"
+        mvp_bass.mkdir(parents=True, exist_ok=True)
+        dest = mvp_bass / "bass.mid"
+        shutil.copy2(out, dest)
+        print(f"Copied to {dest}")
     return 0
 
 

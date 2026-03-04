@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -14,6 +15,50 @@
 
 namespace fs = std::filesystem;
 using nlohmann::json;
+
+// Get duration (seconds) and sample rate from an audio file via ffprobe.
+static bool probeAudioFile(const fs::path& path, double* outDurationSec, int* outSampleRate) {
+  if (!outDurationSec || !outSampleRate) return false;
+  *outDurationSec = 0.0;
+  *outSampleRate = 44100;
+
+  std::string pathStr = path.string();
+  // Shell-escape for safety (minimal: handle spaces)
+  std::string quoted;
+  quoted.reserve(pathStr.size() + 4);
+  quoted += '"';
+  for (char c : pathStr) {
+    if (c == '"' || c == '\\') quoted += '\\';
+    quoted += c;
+  }
+  quoted += '"';
+
+  // Get duration
+  std::string cmd = "ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 " + quoted + " 2>/dev/null";
+  FILE* fp = popen(cmd.c_str(), "r");
+  if (fp) {
+    char buf[128] = {0};
+    if (fgets(buf, sizeof(buf), fp)) {
+      double d = 0.0;
+      if (sscanf(buf, "%lf", &d) == 1 && d > 0.0) *outDurationSec = d;
+    }
+    pclose(fp);
+  }
+
+  // Get sample rate
+  cmd = "ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of default=nw=1:nk=1 " + quoted + " 2>/dev/null";
+  fp = popen(cmd.c_str(), "r");
+  if (fp) {
+    char buf[128] = {0};
+    if (fgets(buf, sizeof(buf), fp)) {
+      int sr = 0;
+      if (sscanf(buf, "%d", &sr) == 1 && sr > 0) *outSampleRate = sr;
+    }
+    pclose(fp);
+  }
+
+  return *outDurationSec > 0.0;
+}
 
 static std::string toLower(std::string s) {
   std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -92,7 +137,7 @@ static void renderMixFromSongState(const fs::path& songStatePath, const fs::path
     cmd += "-i " + shellQuote(p) + " ";
   }
   cmd += "-filter_complex " + shellQuote("amix=inputs=" + std::to_string(inputs.size()) +
-                                        ":duration=longest:dropout_transition=0") +
+                                        ":duration=longest:dropout_transition=0,volume=2.5") +
          " ";
   cmd += "-t " + std::to_string(durationSec) + " ";
   cmd += "-ar " + std::to_string(sr) + " -ac 1 ";
@@ -132,13 +177,25 @@ int main(int argc, char** argv) {
       throw std::runtime_error("No original_*.mp3 files found in: " + dir.string());
     }
 
-    // 2) Write Song_Details.json from originals.
+    // 2) Probe first original for duration and sample rate.
+    double durationSec = 3.0;
+    int sr = 44100;
+    const fs::path firstOriginal = originalsByInstrument.begin()->second;
+    if (probeAudioFile(firstOriginal, &durationSec, &sr)) {
+      // ok
+    }
+    const int songLengthMs = static_cast<int>(durationSec * 1000.0);
+    if (songLengthMs <= 0) {
+      throw std::runtime_error("Could not determine song duration from: " + firstOriginal.string());
+    }
+
+    // 3) Write Song_Details.json from originals.
     json details;
     details["schema_version"] = 1;
     details["song_id"] = "testing_song";
     details["title"] = "testing_song";
-    details["sr"] = 44100;
-    details["song_length_ms"] = 3000;  // test audio files are 3 seconds
+    details["sr"] = sr;
+    details["song_length_ms"] = songLengthMs;
     details["instruments"] = json::object();
 
     for (const auto& [inst, path] : originalsByInstrument) {
@@ -153,7 +210,7 @@ int main(int argc, char** argv) {
 
     writeJsonFile(songDetailsPath, details);
 
-    // 3) Create/update Song_State by applying replacements for any instrument that has a remade file.
+    // 4) Create/update Song_State by applying replacements for any instrument that has a remade file.
     if (fs::exists(songStatePath)) fs::remove(songStatePath);
 
     // Sort instruments for deterministic revision order.
@@ -190,7 +247,7 @@ int main(int argc, char** argv) {
       writeJsonFile(songStatePath, state);
     }
 
-    // 4) Mix all active tracks into one output mp3.
+    // 5) Mix all active tracks into one output mp3.
     renderMixFromSongState(songStatePath, outMixPath);
 
     std::cout << "OK\n"

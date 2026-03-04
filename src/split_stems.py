@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +65,14 @@ def write_songdetails(project_root: Path, model_output_dir: Path, song_path: Pat
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Split audio stems with Demucs.")
+    parser.add_argument(
+        "--mvp-demo",
+        metavar="TRACK",
+        help="Copy stems from output/htdemucs_6s/TRACK/ to MVP demo/ as original_*.mp3 (e.g. combined_portable).",
+    )
+    args = parser.parse_args()
+
     project_root = Path(__file__).resolve().parents[1]
     input_dir = project_root / "resources"
     output_dir = project_root / "output"
@@ -120,6 +130,19 @@ def main() -> int:
 
     for input_file in input_files:
         write_songdetails(project_root, model_output_dir, input_file)
+
+    if args.mvp_demo:
+        stem_dir = model_output_dir / args.mvp_demo
+        if not stem_dir.is_dir() or not has_stem_files(stem_dir):
+            print(f"ERROR: No stems found for '{args.mvp_demo}' at {stem_dir}", file=sys.stderr)
+            return 1
+        mvp_demo = project_root / "MVP demo"
+        mvp_demo.mkdir(parents=True, exist_ok=True)
+        for stem in sorted(stem_dir.iterdir()):
+            if stem.is_file() and stem.suffix.lower() in {".mp3", ".wav", ".flac"}:
+                dest = mvp_demo / f"original_{stem.stem}.mp3"
+                shutil.copy2(stem, dest)
+                print(f"Copied to {dest}")
 
     return 0
 
