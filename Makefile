@@ -1,9 +1,10 @@
 # Simple Makefile build for CrowdNoise native CLIs.
 #
 # Targets:
-#   make                # build bin/mix_json_cli
+#   make                # build bin/mix_json_cli + bin/repeat_sample_at_times_cli
 #   make clean           # remove build artifacts
 #   make run-mix-json    # build and run a known-good test
+#   make run-repeat-hats # build and run a hats-times repeat test
 #
 # Notes:
 # - This repo vendors LAME + a minimal SpeexDSP resampler under src/third_party/.
@@ -65,21 +66,36 @@ VENDOR_C_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_C_SRCS))
 # C++ app sources
 # -----------------------
 
-APP_CPP_SRCS := \
-  $(SRC_DIR)/mix_json_cli.cpp \
+CORE_CPP_SRCS := \
   $(SRC_DIR)/crowdnoise_native_core.cpp \
   $(SRC_DIR)/step1_decode_mp3_to_pcm.cpp
 
-APP_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(APP_CPP_SRCS))
+CORE_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(CORE_CPP_SRCS))
+
+MIX_JSON_CPP_SRCS := \
+  $(SRC_DIR)/mix_json_cli.cpp
+
+MIX_JSON_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(MIX_JSON_CPP_SRCS))
+
+REPEAT_TIMES_CPP_SRCS := \
+  $(SRC_DIR)/repeat_sample_at_times_cli.cpp
+
+REPEAT_TIMES_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(REPEAT_TIMES_CPP_SRCS))
+
+APP_CPP_OBJS := $(CORE_CPP_OBJS) $(MIX_JSON_CPP_OBJS) $(REPEAT_TIMES_CPP_OBJS)
 
 # -----------------------
 # Top-level targets
 # -----------------------
 
-.PHONY: all clean run-mix-json
-all: $(BIN_DIR)/mix_json_cli
+.PHONY: all clean run-mix-json run-repeat run-repeat-hats
+all: $(BIN_DIR)/mix_json_cli $(BIN_DIR)/repeat_sample_at_times_cli
 
-$(BIN_DIR)/mix_json_cli: $(VENDOR_C_OBJS) $(APP_CPP_OBJS)
+$(BIN_DIR)/mix_json_cli: $(VENDOR_C_OBJS) $(CORE_CPP_OBJS) $(MIX_JSON_CPP_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
+
+$(BIN_DIR)/repeat_sample_at_times_cli: $(VENDOR_C_OBJS) $(CORE_CPP_OBJS) $(REPEAT_TIMES_CPP_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
 
@@ -98,4 +114,19 @@ clean:
 
 run-mix-json: $(BIN_DIR)/mix_json_cli
 	./$(BIN_DIR)/mix_json_cli "testing data/Song_State.json" out.mp3
+
+# Generic repeat runner (override vars on command line):
+#   make run-repeat TIMES="path/to/times.csv" SAMPLE="path/to/hit.mp3" OUT="my.mp3"
+TIMES ?= output/trackDecomp/drumTrack/drum/hats_times.csv
+SAMPLE ?= testing\ data/remade_drums.mp3
+OUT ?= out_repeat.mp3
+
+run-repeat: $(BIN_DIR)/repeat_sample_at_times_cli
+	./$(BIN_DIR)/repeat_sample_at_times_cli --times "$(TIMES)" --sample "$(SAMPLE)" --out "$(OUT)"
+
+run-repeat-hats: $(BIN_DIR)/repeat_sample_at_times_cli
+	./$(BIN_DIR)/repeat_sample_at_times_cli \
+	  --times "output/trackDecomp/drumTrack/drum/hats_times.csv" \
+	  --sample "testing data/remade_drums.mp3" \
+	  --out out_hats.mp3
 
