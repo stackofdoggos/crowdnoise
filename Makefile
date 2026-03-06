@@ -1,7 +1,7 @@
 # Simple Makefile build for CrowdNoise native CLIs.
 #
 # Targets:
-#   make                # build bin/mix_json_cli + bin/repeat_sample_at_times_cli
+#   make                # build bin/mix_json_cli + bin/repeat_sample_at_times_cli + pipeline_test
 #   make clean           # remove build artifacts
 #   make run-mix-json    # build and run a known-good test
 #   make run-repeat-hats # build and run a hats-times repeat test
@@ -82,20 +82,33 @@ REPEAT_TIMES_CPP_SRCS := \
 
 REPEAT_TIMES_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(REPEAT_TIMES_CPP_SRCS))
 
+PIPELINE_TEST_CPP_SRCS := \
+  $(SRC_DIR)/replace_track.cpp \
+  $(SRC_DIR)/combine_audio.cpp \
+  $(SRC_DIR)/pipeline_test.cpp
+
+PIPELINE_TEST_CPP_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(PIPELINE_TEST_CPP_SRCS))
+
 APP_CPP_OBJS := $(CORE_CPP_OBJS) $(MIX_JSON_CPP_OBJS) $(REPEAT_TIMES_CPP_OBJS)
 
 # -----------------------
 # Top-level targets
 # -----------------------
 
-.PHONY: all clean run-mix-json run-repeat run-repeat-hats
-all: $(BIN_DIR)/mix_json_cli $(BIN_DIR)/repeat_sample_at_times_cli
+.PHONY: all clean run-mix-json run-repeat run-repeat-hats pipeline_test
+all: $(BIN_DIR)/mix_json_cli $(BIN_DIR)/repeat_sample_at_times_cli pipeline_test
 
 $(BIN_DIR)/mix_json_cli: $(VENDOR_C_OBJS) $(CORE_CPP_OBJS) $(MIX_JSON_CPP_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
 
 $(BIN_DIR)/repeat_sample_at_times_cli: $(VENDOR_C_OBJS) $(CORE_CPP_OBJS) $(REPEAT_TIMES_CPP_OBJS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
+
+# pipeline_test: discovers original_*/remade_* stems, writes Song_Details + Song_State, mixes via combine_audio.
+# Requires ffprobe on PATH for duration detection.
+pipeline_test: $(VENDOR_C_OBJS) $(CORE_CPP_OBJS) $(PIPELINE_TEST_CPP_OBJS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
 
@@ -110,7 +123,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(BIN_DIR)
+	rm -rf $(BUILD_DIR) $(BIN_DIR) pipeline_test
 
 run-mix-json: $(BIN_DIR)/mix_json_cli
 	./$(BIN_DIR)/mix_json_cli "testing data/Song_State.json" out.mp3

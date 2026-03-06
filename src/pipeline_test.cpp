@@ -1,4 +1,5 @@
 #include "replace_track.h"
+#include "combine_audio.h"
 
 #include <algorithm>
 #include <cctype>
@@ -94,57 +95,6 @@ static void writeJsonFile(const fs::path& p, const json& j) {
   std::ofstream out(p, std::ios::trunc);
   if (!out.is_open()) throw std::runtime_error("Failed to open for write: " + p.string());
   out << j.dump(2) << "\n";
-}
-
-static std::string shellQuote(const std::string& s) {
-  // Minimal shell quoting for paths (handles spaces/quotes).
-  std::string out = "\"";
-  for (char c : s) {
-    if (c == '\\' || c == '"') out.push_back('\\');
-    out.push_back(c);
-  }
-  out.push_back('"');
-  return out;
-}
-
-static void renderMixFromSongState(const fs::path& songStatePath, const fs::path& outMp3Path) {
-  std::ifstream in(songStatePath);
-  if (!in.is_open()) throw std::runtime_error("Failed to open Song_State: " + songStatePath.string());
-  json state;
-  in >> state;
-
-  if (!state.contains("sr") || !state["sr"].is_number()) throw std::runtime_error("Song_State missing sr");
-  if (!state.contains("song_length_ms") || !state["song_length_ms"].is_number())
-    throw std::runtime_error("Song_State missing song_length_ms");
-  if (!state.contains("instruments") || !state["instruments"].is_object())
-    throw std::runtime_error("Song_State missing instruments");
-
-  const int sr = state["sr"].get<int>();
-  const double durationSec = state["song_length_ms"].get<double>() / 1000.0;
-
-  std::vector<std::string> inputs;
-  for (auto& [name, inst] : state["instruments"].items()) {
-    if (!inst.contains("active_path") || !inst["active_path"].is_string()) {
-      throw std::runtime_error("Instrument '" + name + "' missing active_path in Song_State");
-    }
-    inputs.push_back(inst["active_path"].get<std::string>());
-  }
-  if (inputs.empty()) throw std::runtime_error("No instruments found to mix");
-
-  // Build ffmpeg amix command.
-  std::string cmd = "ffmpeg -hide_banner -loglevel error -y ";
-  for (const auto& p : inputs) {
-    cmd += "-i " + shellQuote(p) + " ";
-  }
-  cmd += "-filter_complex " + shellQuote("amix=inputs=" + std::to_string(inputs.size()) +
-                                        ":duration=longest:dropout_transition=0,volume=2.5") +
-         " ";
-  cmd += "-t " + std::to_string(durationSec) + " ";
-  cmd += "-ar " + std::to_string(sr) + " -ac 1 ";
-  cmd += "-q:a 4 " + shellQuote(outMp3Path.string());
-
-  const int rc = std::system(cmd.c_str());
-  if (rc != 0) throw std::runtime_error("ffmpeg mix failed with exit code: " + std::to_string(rc));
 }
 
 int main(int argc, char** argv) {
@@ -247,8 +197,12 @@ int main(int argc, char** argv) {
       writeJsonFile(songStatePath, state);
     }
 
-    // 5) Mix all active tracks into one output mp3.
-    renderMixFromSongState(songStatePath, outMixPath);
+    // 5) Mix all active tracks into one output mp3 (uses combine_audio native pipeline).
+    crowdnoise::CombineAudioRequest combineReq;
+    combineReq.songStatePath = songStatePath.string();
+    combineReq.outMp3Path = outMixPath.string();
+    combineReq.vbrQuality = 4;
+    crowdnoise::combineAudio(combineReq);
 
     std::cout << "OK\n"
               << "  wrote: " << songDetailsPath.string() << "\n"
