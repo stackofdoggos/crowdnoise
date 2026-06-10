@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "song_id": "combined-portable",
+  "title": "combined_portable",
+  "sr": 44100,
+  "song_length_ms": 0,
+  "instruments": {
+    "bass": {
+      "original_path": "output/htdemucs_6s/combined_portable/bass.mp3"
+    },
+    "drums": {
+      "original_path": "output/htdemucs_6s/combined_portable/drums.mp3"
+    },
+    "guitar": {
+      "original_path": "output/htdemucs_6s/combined_portable/guitar.mp3"
+    },
+    "other": {
+      "original_path": "output/htdemucs_6s/combined_portable/other.mp3"
+    },
+    "piano": {
+      "original_path": "output/htdemucs_6s/combined_portable/piano.mp3"
+    },
+    "vocals": {
+      "original_path": "output/htdemucs_6s/combined_portable/vocals.mp3"
+    }
+  }
+}

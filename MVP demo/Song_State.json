@@ -1,0 +1,49 @@
+{
+  "history": [
+    {
+      "instrument": "drums",
+      "new_active_path": "MVP demo/remade_drums.mp3",
+      "old_active_path": "MVP demo/original_drums.mp3",
+      "ts": "2026-03-06T17:10:38Z",
+      "user_id": "auto_test"
+    }
+  ],
+  "instruments": {
+    "bass": {
+      "active_path": "MVP demo/original_bass.mp3",
+      "active_source": "original",
+      "original_path": "MVP demo/original_bass.mp3"
+    },
+    "drums": {
+      "active_path": "MVP demo/remade_drums.mp3",
+      "active_source": "user",
+      "original_path": "MVP demo/original_drums.mp3"
+    },
+    "guitar": {
+      "active_path": "MVP demo/original_guitar.mp3",
+      "active_source": "original",
+      "original_path": "MVP demo/original_guitar.mp3"
+    },
+    "other": {
+      "active_path": "MVP demo/original_other.mp3",
+      "active_source": "original",
+      "original_path": "MVP demo/original_other.mp3"
+    },
+    "piano": {
+      "active_path": "MVP demo/original_piano.mp3",
+      "active_source": "original",
+      "original_path": "MVP demo/original_piano.mp3"
+    },
+    "vocals": {
+      "active_path": "MVP demo/original_vocals.mp3",
+      "active_source": "original",
+      "original_path": "MVP demo/original_vocals.mp3"
+    }
+  },
+  "revision": 1,
+  "schema_version": 1,
+  "song_id": "testing_song",
+  "song_length_ms": 7262,
+  "sr": 44100,
+  "title": "testing_song"
+}

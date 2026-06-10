@@ -1,0 +1,27 @@
+{
+  "instruments": {
+    "bass": {
+      "original_path": "MVP demo/original_bass.mp3"
+    },
+    "drums": {
+      "original_path": "MVP demo/original_drums.mp3"
+    },
+    "guitar": {
+      "original_path": "MVP demo/original_guitar.mp3"
+    },
+    "other": {
+      "original_path": "MVP demo/original_other.mp3"
+    },
+    "piano": {
+      "original_path": "MVP demo/original_piano.mp3"
+    },
+    "vocals": {
+      "original_path": "MVP demo/original_vocals.mp3"
+    }
+  },
+  "schema_version": 1,
+  "song_id": "testing_song",
+  "song_length_ms": 7262,
+  "sr": 44100,
+  "title": "testing_song"
+}
