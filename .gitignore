@@ -19,3 +19,10 @@ backend/*.o
 /uploads/
 .venv/
 .libs/
+
+# desktop app
+app/node_modules/
+app/dist/
+
+# per-project app data (user samples, mixes)
+/projects/

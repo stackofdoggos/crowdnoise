@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "method": "hpss+band-onsets+spectral-classification",
+  "source": "/Users/maguilar/Documents/HTCS_Projects/crowdnoise/output/htdemucs_6s/Kanye West - Homecoming/drums.mp3",
+  "sr": 44100,
+  "duration_s": 204.304,
+  "classes": {
+    "kick": {
+      "count": 237,
+      "times_csv": "kick_times.csv",
+      "stem": "kick.mp3",
+      "one_shot": "kick_one_shot.mp3"
+    },
+    "snare": {
+      "count": 121,
+      "times_csv": "snare_times.csv",
+      "stem": "snare.mp3",
+      "one_shot": "snare_one_shot.mp3"
+    },
+    "hats": {
+      "count": 241,
+      "times_csv": "hats_times.csv",
+      "stem": "hats.mp3",
+      "one_shot": "hats_one_shot.mp3"
+    }
+  }
+}
